@@ -10,6 +10,7 @@ let joined = false;
 let users = [];
 let selectedMicrophoneId = "";
 let selectedSpeakerId = "";
+let selectedBitrate = 32000;
 let activeTargets = new Set();
 let activeCard = null;
 
@@ -23,6 +24,7 @@ const connectionDot = document.querySelector("#connection-dot");
 const userCount = document.querySelector("#user-count");
 const microphoneSelect = document.querySelector("#microphone-select");
 const speakerSelect = document.querySelector("#speaker-select");
+const bitrateSelect = document.querySelector("#bitrate-select");
 const deviceHint = document.querySelector("#device-hint");
 
 function setConnection(online, label) {
@@ -88,6 +90,22 @@ function updateTransmission(targetIds) {
     entry.audioSender?.replaceTrack(activeTargets.has(targetId) ? localTrack : null).catch(console.error);
   });
   if (localTrack) localTrack.enabled = activeTargets.size > 0;
+}
+
+async function applyBitrate(sender) {
+  if (!sender) return;
+  const parameters = sender.getParameters();
+  parameters.encodings ??= [{}];
+  parameters.encodings[0].maxBitrate = selectedBitrate;
+  try {
+    await sender.setParameters(parameters);
+  } catch (error) {
+    console.warn("Não foi possível aplicar o bitrate neste navegador:", error);
+  }
+}
+
+async function applyBitrateToPeers() {
+  await Promise.all([...peers.values()].map((entry) => applyBitrate(entry.audioSender)));
 }
 
 function clearTransmission() {
@@ -188,6 +206,7 @@ async function ensureLocalAudio(activate = true) {
     peers.forEach((entry) => {
       if (!entry.audioSender) {
         entry.audioSender = entry.pc.addTrack(localStream.getAudioTracks()[0], localStream);
+        applyBitrate(entry.audioSender);
       }
     });
   }
@@ -211,6 +230,7 @@ async function loadAudioDevices() {
   });
   microphoneSelect.disabled = microphones.length === 0;
   speakerSelect.disabled = speakers.length === 0;
+  bitrateSelect.disabled = false;
   if (previousMicrophone && microphones.some((device) => device.deviceId === previousMicrophone)) {
     microphoneSelect.value = previousMicrophone;
   } else if (microphones[0]) {
@@ -236,6 +256,7 @@ async function changeMicrophone(deviceId) {
   });
   if (oldTrack) oldTrack.stop();
   localStream = replacement;
+  await applyBitrateToPeers();
 }
 
 async function changeSpeaker(deviceId) {
@@ -249,7 +270,10 @@ function createPeer(targetId) {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const entry = { pc, makingOffer: false, audioSender: null };
   peers.set(targetId, entry);
-  if (localStream) entry.audioSender = pc.addTrack(localStream.getAudioTracks()[0], localStream);
+  if (localStream) {
+    entry.audioSender = pc.addTrack(localStream.getAudioTracks()[0], localStream);
+    applyBitrate(entry.audioSender);
+  }
   pc.onicecandidate = ({ candidate }) => { if (candidate) socket.emit("ice-candidate", { target: targetId, candidate }); };
   pc.ontrack = ({ streams }) => {
     if (streams[0]) {
@@ -275,6 +299,7 @@ async function ensurePeer(targetId, createOffer) {
   }
   if (localStream && !entry.audioSender) {
     entry.audioSender = entry.pc.addTrack(localStream.getAudioTracks()[0], localStream);
+    await applyBitrate(entry.audioSender);
   }
   if (createOffer && entry.pc.signalingState === "stable") {
     entry.makingOffer = true;
@@ -304,6 +329,7 @@ joinButton.addEventListener("click", async () => {
     await ensureLocalAudio(false);
     await loadAudioDevices();
     microphoneSelect.disabled = false;
+    bitrateSelect.disabled = false;
     hint.textContent = "Segure o cartão de um operador para falar.";
     socket.auth = { name };
     socket.connect();
@@ -341,6 +367,12 @@ speakerSelect.addEventListener("change", async () => {
     console.error(error);
     deviceHint.textContent = "Não foi possível trocar o alto-falante.";
   }
+});
+
+bitrateSelect.addEventListener("change", async () => {
+  selectedBitrate = Number(bitrateSelect.value) || 32000;
+  await applyBitrateToPeers();
+  deviceHint.textContent = `Taxa de bits ajustada para ${selectedBitrate / 1000} kbps.`;
 });
 
 navigator.mediaDevices?.addEventListener("devicechange", () => {
