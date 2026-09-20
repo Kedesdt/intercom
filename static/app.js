@@ -91,6 +91,16 @@ function updateTransmission(targetIds) {
   if (localTrack) localTrack.enabled = activeTargets.size > 0;
 }
 
+function closePeersExcept(targetIds) {
+  const keep = new Set(targetIds);
+  peers.forEach(({ pc }, targetId) => {
+    if (!keep.has(targetId)) {
+      pc.close();
+      peers.delete(targetId);
+    }
+  });
+}
+
 function clearTransmission() {
   const previousTargets = [...activeTargets];
   updateTransmission([]);
@@ -116,6 +126,7 @@ function bindPtt(card, targetId) {
       await ensureLocalAudio();
       if (card.dataset.pressed !== "true") return;
       const targetIds = getTargets(targetId);
+      closePeersExcept(targetIds);
       await Promise.all(targetIds.map((id) => ensurePeer(id, true)));
       if (card.dataset.pressed !== "true") return;
       updateTransmission(targetIds);
@@ -148,6 +159,7 @@ function bindPtt(card, targetId) {
 function stopPtt(card, targetId) {
   if (card.dataset.pressed !== "true") return;
   clearTransmission();
+  closePeersExcept([]);
 }
 
 async function ensureLocalAudio(activate = true) {
