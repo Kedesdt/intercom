@@ -8,6 +8,8 @@ let joined = false;
 let users = [];
 let selectedMicrophoneId = "";
 let selectedSpeakerId = "";
+let activeTargets = new Set();
+let activeCard = null;
 
 const matrix = document.querySelector("#matrix");
 const emptyState = document.querySelector("#empty-state");
@@ -43,6 +45,19 @@ function renderUsers() {
   matrix.replaceChildren();
   cards.clear();
 
+  if (others.length > 0) {
+    const allCard = document.createElement("article");
+    allCard.className = "channel channel-all";
+    allCard.innerHTML = `<div class="channel-top"><p class="operator">Todos os operadores</p><span class="channel-id">ALL</span></div><p class="channel-state">Canal livre</p>`;
+    allCard.tabIndex = joined ? 0 : -1;
+    allCard.setAttribute("role", "button");
+    allCard.setAttribute("aria-label", "Falar com todos os operadores");
+    allCard.setAttribute("aria-disabled", String(!joined));
+    bindPtt(allCard, "all");
+    matrix.append(allCard);
+    cards.set("all", { card: allCard, state: allCard.querySelector(".channel-state") });
+  }
+
   others.forEach((user, index) => {
     const card = document.createElement("article");
     card.className = "channel";
@@ -58,17 +73,53 @@ function renderUsers() {
   });
 }
 
+function getTargets(targetId) {
+  return targetId === "all"
+    ? users.filter((user) => user.id !== selfId).map((user) => user.id)
+    : [targetId];
+}
+
+function updateTransmission(targetIds) {
+  activeTargets = new Set(targetIds);
+  const localTrack = localStream?.getAudioTracks()[0];
+  peers.forEach(({ pc }, targetId) => {
+    const sender = pc.getSenders().find((item) => item.track?.kind === "audio" || item.track === null);
+    if (sender && sender.track !== localTrack) {
+      sender.replaceTrack(activeTargets.has(targetId) ? localTrack : null).catch(console.error);
+    }
+  });
+  if (localTrack) localTrack.enabled = activeTargets.size > 0;
+}
+
+function clearTransmission() {
+  const previousTargets = [...activeTargets];
+  updateTransmission([]);
+  previousTargets.forEach((target) => socket.emit("ptt-state", { target, active: false }));
+  if (activeCard) {
+    activeCard.dataset.pressed = "false";
+    activeCard.classList.remove("talking");
+    activeCard.querySelector(".channel-state").textContent = "Canal livre";
+  }
+  activeCard = null;
+}
+
 function bindPtt(card, targetId) {
   const start = async (event) => {
     event.preventDefault();
     if (!joined || card.dataset.pressed === "true") return;
+    clearTransmission();
     card.dataset.pressed = "true";
+    activeCard = card;
     card.classList.add("talking");
     card.querySelector(".channel-state").textContent = "Transmitindo áudio";
     try {
       await ensureLocalAudio();
-      await ensurePeer(targetId, true);
-      socket.emit("ptt-state", { target: targetId, active: true });
+      if (card.dataset.pressed !== "true") return;
+      const targetIds = getTargets(targetId);
+      await Promise.all(targetIds.map((id) => ensurePeer(id, true)));
+      if (card.dataset.pressed !== "true") return;
+      updateTransmission(targetIds);
+      targetIds.forEach((id) => socket.emit("ptt-state", { target: id, active: true }));
     } catch (error) {
       console.error(error);
       stopPtt(card, targetId);
@@ -96,11 +147,7 @@ function bindPtt(card, targetId) {
 
 function stopPtt(card, targetId) {
   if (card.dataset.pressed !== "true") return;
-  card.dataset.pressed = "false";
-  card.classList.remove("talking");
-  card.querySelector(".channel-state").textContent = "Canal livre";
-  if (localStream) localStream.getAudioTracks().forEach((track) => { track.enabled = false; });
-  socket.emit("ptt-state", { target: targetId, active: false });
+  clearTransmission();
 }
 
 async function ensureLocalAudio(activate = true) {
@@ -154,8 +201,8 @@ async function changeMicrophone(deviceId) {
   const replacementTrack = replacement.getAudioTracks()[0];
   replacementTrack.enabled = false;
   const oldTrack = localStream?.getAudioTracks()[0];
-  peers.forEach(({ pc }) => {
-    pc.getSenders().find((sender) => sender.track?.kind === "audio")?.replaceTrack(replacementTrack);
+  peers.forEach(({ pc }, targetId) => {
+    pc.getSenders().find((sender) => sender.track?.kind === "audio" || sender.track === null)?.replaceTrack(activeTargets.has(targetId) ? replacementTrack : null);
   });
   if (oldTrack) oldTrack.stop();
   localStream = replacement;
