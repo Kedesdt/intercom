@@ -82,23 +82,10 @@ function getTargets(targetId) {
 function updateTransmission(targetIds) {
   activeTargets = new Set(targetIds);
   const localTrack = localStream?.getAudioTracks()[0];
-  peers.forEach(({ pc }, targetId) => {
-    const sender = pc.getSenders().find((item) => item.track?.kind === "audio" || item.track === null);
-    if (sender && sender.track !== localTrack) {
-      sender.replaceTrack(activeTargets.has(targetId) ? localTrack : null).catch(console.error);
-    }
+  peers.forEach((entry, targetId) => {
+    entry.audioSender?.replaceTrack(activeTargets.has(targetId) ? localTrack : null).catch(console.error);
   });
   if (localTrack) localTrack.enabled = activeTargets.size > 0;
-}
-
-function closePeersExcept(targetIds) {
-  const keep = new Set(targetIds);
-  peers.forEach(({ pc }, targetId) => {
-    if (!keep.has(targetId)) {
-      pc.close();
-      peers.delete(targetId);
-    }
-  });
 }
 
 function clearTransmission() {
@@ -123,10 +110,9 @@ function bindPtt(card, targetId) {
     card.classList.add("talking");
     card.querySelector(".channel-state").textContent = "Transmitindo áudio";
     try {
-      await ensureLocalAudio();
+      await ensureLocalAudio(false);
       if (card.dataset.pressed !== "true") return;
       const targetIds = getTargets(targetId);
-      closePeersExcept(targetIds);
       await Promise.all(targetIds.map((id) => ensurePeer(id, true)));
       if (card.dataset.pressed !== "true") return;
       updateTransmission(targetIds);
@@ -159,7 +145,6 @@ function bindPtt(card, targetId) {
 function stopPtt(card, targetId) {
   if (card.dataset.pressed !== "true") return;
   clearTransmission();
-  closePeersExcept([]);
 }
 
 async function ensureLocalAudio(activate = true) {
@@ -169,8 +154,10 @@ async function ensureLocalAudio(activate = true) {
       video: false,
     });
     localStream.getAudioTracks().forEach((track) => { track.enabled = false; });
-    peers.forEach(({ pc }) => {
-      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+    peers.forEach((entry) => {
+      if (!entry.audioSender) {
+        entry.audioSender = entry.pc.addTrack(localStream.getAudioTracks()[0], localStream);
+      }
     });
   }
   localStream.getAudioTracks().forEach((track) => { track.enabled = activate; });
@@ -213,8 +200,8 @@ async function changeMicrophone(deviceId) {
   const replacementTrack = replacement.getAudioTracks()[0];
   replacementTrack.enabled = false;
   const oldTrack = localStream?.getAudioTracks()[0];
-  peers.forEach(({ pc }, targetId) => {
-    pc.getSenders().find((sender) => sender.track?.kind === "audio" || sender.track === null)?.replaceTrack(activeTargets.has(targetId) ? replacementTrack : null);
+  peers.forEach((entry, targetId) => {
+    entry.audioSender?.replaceTrack(activeTargets.has(targetId) ? replacementTrack : null);
   });
   if (oldTrack) oldTrack.stop();
   localStream = replacement;
@@ -229,8 +216,9 @@ async function changeSpeaker(deviceId) {
 
 function createPeer(targetId) {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-  peers.set(targetId, { pc, makingOffer: false });
-  if (localStream) localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+  const entry = { pc, makingOffer: false, audioSender: null };
+  peers.set(targetId, entry);
+  if (localStream) entry.audioSender = pc.addTrack(localStream.getAudioTracks()[0], localStream);
   pc.onicecandidate = ({ candidate }) => { if (candidate) socket.emit("ice-candidate", { target: targetId, candidate }); };
   pc.ontrack = ({ streams }) => {
     if (streams[0]) {
@@ -249,9 +237,12 @@ function createPeer(targetId) {
 
 async function ensurePeer(targetId, createOffer) {
   let entry = peers.get(targetId);
-  if (!entry) entry = { pc: createPeer(targetId), makingOffer: false };
-  if (localStream && !entry.pc.getSenders().some((sender) => sender.track?.kind === "audio")) {
-    localStream.getTracks().forEach((track) => entry.pc.addTrack(track, localStream));
+  if (!entry) {
+    createPeer(targetId);
+    entry = peers.get(targetId);
+  }
+  if (localStream && !entry.audioSender) {
+    entry.audioSender = entry.pc.addTrack(localStream.getAudioTracks()[0], localStream);
   }
   if (createOffer && entry.pc.signalingState === "stable") {
     entry.makingOffer = true;
