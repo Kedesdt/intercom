@@ -26,6 +26,16 @@ function setConnection(online, label) {
   connectionLabel.textContent = label;
 }
 
+function getMicrophoneSupportMessage() {
+  if (!window.isSecureContext) {
+    return "O microfone exige HTTPS. Use http://localhost:5000 localmente ou publique a aplicação com HTTPS.";
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return "Este navegador não disponibilizou a API de microfone para esta página.";
+  }
+  return "";
+}
+
 function renderUsers() {
   const others = users.filter((user) => user.id !== selfId);
   userCount.textContent = `${others.length} ${others.length === 1 ? "conectado" : "conectados"}`;
@@ -56,12 +66,25 @@ function bindPtt(button, card, targetId) {
     card.querySelector(".channel-state").textContent = "Transmitindo áudio";
     try {
       await ensureLocalAudio();
+      if (microphoneSelect.disabled) {
+        await loadAudioDevices();
+        microphoneSelect.disabled = false;
+      }
       await ensurePeer(targetId, true);
       socket.emit("ptt-state", { target: targetId, active: true });
     } catch (error) {
       console.error(error);
       stopPtt(button, card, targetId);
-      hint.textContent = "Não foi possível acessar o microfone.";
+      const supportMessage = getMicrophoneSupportMessage();
+      if (supportMessage) {
+        hint.textContent = supportMessage;
+      } else if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+        hint.textContent = "A permissão do microfone foi recusada. Libere-a nas configurações do site e tente novamente.";
+      } else if (error.name === "NotFoundError") {
+        hint.textContent = "Nenhum microfone foi encontrado neste dispositivo.";
+      } else {
+        hint.textContent = "Não foi possível acessar o microfone.";
+      }
     }
   };
   const stop = (event) => {
@@ -187,30 +210,15 @@ async function ensurePeer(targetId, createOffer) {
 
 joinButton.addEventListener("click", async () => {
   if (joined) return;
-  if (!navigator.mediaDevices?.getUserMedia) {
-    hint.textContent = "Este navegador não permite acesso ao microfone nesta página.";
-    return;
-  }
   const name = nameInput.value.trim() || `Operador ${Math.floor(Math.random() * 90 + 10)}`;
   nameInput.value = name;
+  joined = true;
+  nameInput.disabled = true;
   joinButton.disabled = true;
-  hint.textContent = "Aguardando permissão para usar o microfone...";
-  try {
-    await ensureLocalAudio();
-    await loadAudioDevices();
-    joined = true;
-    nameInput.disabled = true;
-    microphoneSelect.disabled = false;
-    hint.textContent = "Segure um botão para transmitir áudio.";
-    socket.auth = { name };
-    socket.connect();
-    renderUsers();
-  } catch (error) {
-    console.error(error);
-    joinButton.disabled = false;
-    hint.textContent = "Permita o uso do microfone para entrar na matriz.";
-    deviceHint.textContent = "A permissão foi recusada ou o microfone não está disponível.";
-  }
+  hint.textContent = "Segure um botão para falar. O microfone será solicitado no primeiro PTT.";
+  socket.auth = { name };
+  socket.connect();
+  renderUsers();
 });
 
 microphoneSelect.addEventListener("change", async () => {
