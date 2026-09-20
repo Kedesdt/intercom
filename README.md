@@ -87,3 +87,30 @@ Flask local
 ```
 
 Esse túnel rápido não exige `cloudflared tunnel login`, domínio próprio, certificado local ou configuração de portas no roteador. A URL é temporária e muda quando o processo é encerrado. Para uma URL fixa, é necessário configurar um túnel nomeado com um domínio administrado pela Cloudflare.
+
+## Servidor direcionador
+
+O arquivo `redirect_server.py` inicia um servidor HTTP que redireciona qualquer acesso à raiz para o endereço definido em `address.json`.
+
+Edite o destino:
+
+```json
+{
+  "address": "https://seu-endereco.com"
+}
+```
+
+Inicie o direcionador na porta 80:
+
+```powershell
+python redirect_server.py
+```
+
+Acesse o IP ou domínio do computador e o navegador será encaminhado para o endereço configurado. A porta 80 pode exigir que o PowerShell seja executado como administrador. Para testar sem privilégios, use outra porta:
+
+```powershell
+$env:REDIRECT_PORT = "8080"
+python redirect_server.py
+```
+
+O direcionador é separado do servidor principal: `app.py` continua atendendo o Intercom na porta 5000.
