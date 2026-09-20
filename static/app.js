@@ -2,6 +2,8 @@ const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 const socket = io({ autoConnect: false });
 const peers = new Map();
 const cards = new Map();
+const vuMeters = new Map();
+let audioContext = null;
 let selfId = null;
 let localStream = null;
 let joined = false;
@@ -48,7 +50,7 @@ function renderUsers() {
   if (others.length > 0) {
     const allCard = document.createElement("article");
     allCard.className = "channel channel-all";
-    allCard.innerHTML = `<div class="channel-top"><p class="operator">Todos os operadores</p><span class="channel-id">ALL</span></div><p class="channel-state">Canal livre</p>`;
+    allCard.innerHTML = `<div class="channel-top"><p class="operator">Todos os operadores</p><span class="channel-id">ALL</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><button class="talk-button" type="button" aria-label="Falar com todos"></button>`;
     allCard.tabIndex = joined ? 0 : -1;
     allCard.setAttribute("role", "button");
     allCard.setAttribute("aria-label", "Falar com todos os operadores");
@@ -61,7 +63,7 @@ function renderUsers() {
   others.forEach((user, index) => {
     const card = document.createElement("article");
     card.className = "channel";
-    card.innerHTML = `<div class="channel-top"><p class="operator"></p><span class="channel-id">CH ${String(index + 1).padStart(2, "0")}</span></div><p class="channel-state">Canal livre</p>`;
+    card.innerHTML = `<div class="channel-top"><p class="operator"></p><span class="channel-id">CH ${String(index + 1).padStart(2, "0")}</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><button class="talk-button" type="button" aria-label="Falar"></button>`;
     card.querySelector(".operator").textContent = user.name;
     card.tabIndex = joined ? 0 : -1;
     card.setAttribute("role", "button");
@@ -98,6 +100,35 @@ function clearTransmission() {
     activeCard.querySelector(".channel-state").textContent = "Canal livre";
   }
   activeCard = null;
+}
+
+function updateVuMeter(targetId, stream) {
+  if (!audioContext) audioContext = new AudioContext();
+  audioContext.resume().catch(() => {});
+  const previous = vuMeters.get(targetId);
+  if (previous) cancelAnimationFrame(previous.frame);
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  const samples = new Uint8Array(analyser.fftSize);
+  const source = audioContext.createMediaStreamSource(stream);
+  source.connect(analyser);
+  const meter = { frame: 0 };
+  vuMeters.set(targetId, meter);
+
+  const draw = () => {
+    analyser.getByteTimeDomainData(samples);
+    let sum = 0;
+    samples.forEach((sample) => {
+      const normalized = (sample - 128) / 128;
+      sum += normalized * normalized;
+    });
+    const level = Math.min(100, Math.round(Math.sqrt(sum / samples.length) * 240));
+    const card = cards.get(targetId);
+    const fill = card?.card.querySelector(".vu-fill");
+    if (fill) fill.style.width = `${level}%`;
+    meter.frame = requestAnimationFrame(draw);
+  };
+  draw();
 }
 
 function bindPtt(card, targetId) {
@@ -228,6 +259,7 @@ function createPeer(targetId) {
       if (selectedSpeakerId && "setSinkId" in HTMLMediaElement.prototype) {
         audio.setSinkId(selectedSpeakerId).catch(console.error);
       }
+      updateVuMeter(targetId, streams[0]);
       audio.play().catch(() => {});
     }
   };
