@@ -46,35 +46,32 @@ function renderUsers() {
   others.forEach((user, index) => {
     const card = document.createElement("article");
     card.className = "channel";
-    card.innerHTML = `<div class="channel-top"><p class="operator"></p><span class="channel-id">CH ${String(index + 1).padStart(2, "0")}</span></div><p class="channel-state">Canal livre</p><button class="talk-button" type="button">PRESSIONE PARA FALAR</button>`;
+    card.innerHTML = `<div class="channel-top"><p class="operator"></p><span class="channel-id">CH ${String(index + 1).padStart(2, "0")}</span></div><p class="channel-state">Canal livre</p>`;
     card.querySelector(".operator").textContent = user.name;
-    const button = card.querySelector("button");
-    button.disabled = !joined;
-    bindPtt(button, card, user.id);
+    card.tabIndex = joined ? 0 : -1;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Falar com ${user.name}`);
+    card.setAttribute("aria-disabled", String(!joined));
+    bindPtt(card, user.id);
     matrix.append(card);
-    cards.set(user.id, { card, button, state: card.querySelector(".channel-state") });
+    cards.set(user.id, { card, state: card.querySelector(".channel-state") });
   });
 }
 
-function bindPtt(button, card, targetId) {
+function bindPtt(card, targetId) {
   const start = async (event) => {
     event.preventDefault();
-    if (!joined || button.dataset.pressed === "true") return;
-    button.dataset.pressed = "true";
-    button.textContent = "FALANDO...";
+    if (!joined || card.dataset.pressed === "true") return;
+    card.dataset.pressed = "true";
     card.classList.add("talking");
     card.querySelector(".channel-state").textContent = "Transmitindo áudio";
     try {
       await ensureLocalAudio();
-      if (microphoneSelect.disabled) {
-        await loadAudioDevices();
-        microphoneSelect.disabled = false;
-      }
       await ensurePeer(targetId, true);
       socket.emit("ptt-state", { target: targetId, active: true });
     } catch (error) {
       console.error(error);
-      stopPtt(button, card, targetId);
+      stopPtt(card, targetId);
       const supportMessage = getMicrophoneSupportMessage();
       if (supportMessage) {
         hint.textContent = supportMessage;
@@ -89,25 +86,24 @@ function bindPtt(button, card, targetId) {
   };
   const stop = (event) => {
     event.preventDefault();
-    stopPtt(button, card, targetId);
+    stopPtt(card, targetId);
   };
-  button.addEventListener("pointerdown", start);
-  ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => button.addEventListener(eventName, stop));
-  button.addEventListener("keydown", (event) => { if (event.code === "Space" || event.code === "Enter") start(event); });
-  button.addEventListener("keyup", (event) => { if (event.code === "Space" || event.code === "Enter") stop(event); });
+  card.addEventListener("pointerdown", start);
+  ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => card.addEventListener(eventName, stop));
+  card.addEventListener("keydown", (event) => { if (event.code === "Space" || event.code === "Enter") start(event); });
+  card.addEventListener("keyup", (event) => { if (event.code === "Space" || event.code === "Enter") stop(event); });
 }
 
-function stopPtt(button, card, targetId) {
-  if (button.dataset.pressed !== "true") return;
-  button.dataset.pressed = "false";
-  button.textContent = "PRESSIONE PARA FALAR";
+function stopPtt(card, targetId) {
+  if (card.dataset.pressed !== "true") return;
+  card.dataset.pressed = "false";
   card.classList.remove("talking");
   card.querySelector(".channel-state").textContent = "Canal livre";
   if (localStream) localStream.getAudioTracks().forEach((track) => { track.enabled = false; });
   socket.emit("ptt-state", { target: targetId, active: false });
 }
 
-async function ensureLocalAudio() {
+async function ensureLocalAudio(activate = true) {
   if (!localStream) {
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: selectedMicrophoneId ? { deviceId: { exact: selectedMicrophoneId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } : { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -118,7 +114,7 @@ async function ensureLocalAudio() {
       localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
     });
   }
-  localStream.getAudioTracks().forEach((track) => { track.enabled = true; });
+  localStream.getAudioTracks().forEach((track) => { track.enabled = activate; });
 }
 
 async function loadAudioDevices() {
@@ -210,15 +206,39 @@ async function ensurePeer(targetId, createOffer) {
 
 joinButton.addEventListener("click", async () => {
   if (joined) return;
+  const supportMessage = getMicrophoneSupportMessage();
+  if (supportMessage) {
+    hint.textContent = supportMessage;
+    deviceHint.textContent = "Abra a aplicação em um contexto seguro para liberar o microfone.";
+    return;
+  }
   const name = nameInput.value.trim() || `Operador ${Math.floor(Math.random() * 90 + 10)}`;
   nameInput.value = name;
   joined = true;
   nameInput.disabled = true;
   joinButton.disabled = true;
-  hint.textContent = "Segure um botão para falar. O microfone será solicitado no primeiro PTT.";
-  socket.auth = { name };
-  socket.connect();
-  renderUsers();
+  hint.textContent = "Aguardando permissão para usar o microfone...";
+  try {
+    await ensureLocalAudio(false);
+    await loadAudioDevices();
+    microphoneSelect.disabled = false;
+    hint.textContent = "Segure o cartão de um operador para falar.";
+    socket.auth = { name };
+    socket.connect();
+    renderUsers();
+  } catch (error) {
+    console.error(error);
+    joined = false;
+    nameInput.disabled = false;
+    joinButton.disabled = false;
+    if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+      hint.textContent = "A permissão do microfone foi recusada. Libere-a nas configurações do site e tente novamente.";
+    } else if (error.name === "NotFoundError") {
+      hint.textContent = "Nenhum microfone foi encontrado neste dispositivo.";
+    } else {
+      hint.textContent = "Não foi possível acessar o microfone.";
+    }
+  }
 });
 
 microphoneSelect.addEventListener("change", async () => {

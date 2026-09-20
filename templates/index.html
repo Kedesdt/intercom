@@ -16,26 +16,26 @@
       <div class="connection"><span id="connection-dot" class="status-dot"></span><span id="connection-label">Conectando</span></div>
     </header>
 
+    <section class="matrix-heading"><div><p class="eyebrow">CANAIS DISPONÍVEIS</p><h2>Escolha um operador para falar</h2></div><span id="user-count" class="count">0 conectados</span></section>
+    <section id="matrix" class="matrix" aria-live="polite"></section>
+    <p id="empty-state" class="empty-state">Nenhum outro operador está conectado.</p>
+
     <section class="control-strip">
       <label class="name-field">Seu identificador<input id="name-input" maxlength="32" autocomplete="nickname" placeholder="Ex.: Operador 01"></label>
       <button id="join-button" class="primary-button" type="button">Entrar na matriz</button>
       <p id="hint" class="hint">Entre para liberar os canais de voz.</p>
     </section>
 
-    <section class="matrix-heading"><div><p class="eyebrow">CANAIS DISPONÍVEIS</p><h2>Escolha um operador para falar</h2></div><span id="user-count" class="count">0 conectados</span></section>
-    <section id="matrix" class="matrix" aria-live="polite"></section>
-    <p id="empty-state" class="empty-state">Nenhum outro operador está conectado.</p>
-
     <section class="audio-settings" aria-labelledby="audio-settings-title">
       <div><p class="eyebrow">CONFIGURAÇÃO DE ÁUDIO</p><h2 id="audio-settings-title">Dispositivos</h2></div>
       <label class="device-field">Microfone<select id="microphone-select" disabled><option>Entre para listar os dispositivos</option></select></label>
       <label class="device-field">Alto-falante<select id="speaker-select" disabled><option>Entre para listar os dispositivos</option></select></label>
-      <p id="device-hint" class="device-hint">A permissão do microfone será solicitada ao entrar.</p>
+      <p id="device-hint" class="device-hint">A permissão do microfone será solicitada ao entrar na matriz.</p>
     </section>
 
     <footer><span>Áudio em tempo real via WebRTC</span><span>Sem gravação</span></footer>
   </main>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <script src="{{ url_for('static', filename='app.js', v='3') }}"></script>
+  <script src="{{ url_for('static', filename='app.js', v='4') }}"></script>
 </body>
 </html>
