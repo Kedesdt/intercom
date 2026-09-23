@@ -31,6 +31,12 @@ body { margin: 0; min-height: 100vh; color: var(--ink); background: radial-gradi
 .channel-state { pointer-events: none; }
 .vu-meter { height: 6px; margin: 10px 0 4px; overflow: hidden; border: 1px solid #38534b; background: #0b1714; pointer-events: none; }
 .vu-fill { display: block; width: 0; height: 100%; background: var(--accent); transition: width 80ms linear; }
+.channel-actions { display: grid; grid-template-columns: 42px 1fr; gap: 8px; align-items: stretch; }
+.direct-button { min-height: 34px; padding: 0 5px; border: 1px solid #415750; cursor: pointer; color: var(--muted); background: transparent; font: 700 11px "DM Sans", sans-serif; }
+.direct-button:hover, .channel.direct .direct-button { border-color: var(--accent); color: var(--accent-ink); background: var(--accent); }
+.direct-button:disabled { cursor: wait; opacity: .55; }
+.channel.direct { border-color: var(--accent); background: #20352d; }
+.channel.direct .channel-state { color: var(--accent); }
 .talk-button { display: block; width: 100%; min-height: 34px; padding: 0; border: 1px solid var(--accent); background: var(--accent); color: transparent; pointer-events: none; }
 @media (max-width: 760px) { .audio-settings { grid-template-columns: 1fr; margin-top: 30px; }.device-hint { grid-column: auto; } }
 @media (max-width: 600px) { .shell { width: min(100% - 28px, 1120px); padding-top: 22px; }.control-strip { margin-bottom: 38px; }.name-field, .name-field input, .primary-button { width: 100%; }.primary-button { margin-top: 2px; }.hint { width: 100%; }.matrix-heading h2 { font-size: 26px; }.matrix-heading { align-items: start; gap: 10px; flex-direction: column; } footer { gap: 12px; align-items: start; flex-direction: column; } }

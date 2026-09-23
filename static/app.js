@@ -12,6 +12,8 @@ let selectedMicrophoneId = "";
 let selectedSpeakerId = "";
 let selectedBitrate = 32000;
 let activeTargets = new Set();
+let directTargets = new Set();
+let pttTargets = new Set();
 let activeCard = null;
 
 const matrix = document.querySelector("#matrix");
@@ -52,12 +54,13 @@ function renderUsers() {
   if (others.length > 0) {
     const allCard = document.createElement("article");
     allCard.className = "channel channel-all";
-    allCard.innerHTML = `<div class="channel-top"><p class="operator">Todos os operadores</p><span class="channel-id">ALL</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><button class="talk-button" type="button" aria-label="Falar com todos"></button>`;
+    allCard.innerHTML = `<div class="channel-top"><p class="operator">Todos os operadores</p><span class="channel-id">ALL</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><div class="channel-actions"><button class="direct-button" type="button" aria-label="Ligar transmissão contínua para todos" aria-pressed="false">ON</button><button class="talk-button" type="button" aria-label="Falar com todos"></button></div>`;
     allCard.tabIndex = joined ? 0 : -1;
     allCard.setAttribute("role", "button");
     allCard.setAttribute("aria-label", "Falar com todos os operadores");
     allCard.setAttribute("aria-disabled", String(!joined));
     bindPtt(allCard, "all");
+    bindDirect(allCard, "all");
     matrix.append(allCard);
     cards.set("all", { card: allCard, state: allCard.querySelector(".channel-state") });
   }
@@ -65,13 +68,14 @@ function renderUsers() {
   others.forEach((user, index) => {
     const card = document.createElement("article");
     card.className = "channel";
-    card.innerHTML = `<div class="channel-top"><p class="operator"></p><span class="channel-id">CH ${String(index + 1).padStart(2, "0")}</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><button class="talk-button" type="button" aria-label="Falar"></button>`;
+    card.innerHTML = `<div class="channel-top"><p class="operator"></p><span class="channel-id">CH ${String(index + 1).padStart(2, "0")}</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><div class="channel-actions"><button class="direct-button" type="button" aria-label="Ligar transmissão contínua" aria-pressed="false">ON</button><button class="talk-button" type="button" aria-label="Falar"></button></div>`;
     card.querySelector(".operator").textContent = user.name;
     card.tabIndex = joined ? 0 : -1;
     card.setAttribute("role", "button");
     card.setAttribute("aria-label", `Falar com ${user.name}`);
     card.setAttribute("aria-disabled", String(!joined));
     bindPtt(card, user.id);
+    bindDirect(card, user.id);
     matrix.append(card);
     cards.set(user.id, { card, state: card.querySelector(".channel-state") });
   });
@@ -92,6 +96,22 @@ function updateTransmission(targetIds) {
   if (localTrack) localTrack.enabled = activeTargets.size > 0;
 }
 
+function getTransmissionTargets() {
+  return new Set([...directTargets, ...pttTargets]);
+}
+
+function syncTransmission() {
+  const previousTargets = activeTargets;
+  const nextTargets = getTransmissionTargets();
+  updateTransmission(nextTargets);
+  previousTargets.forEach((target) => {
+    if (!nextTargets.has(target)) socket.emit("ptt-state", { target, active: false });
+  });
+  nextTargets.forEach((target) => {
+    if (!previousTargets.has(target)) socket.emit("ptt-state", { target, active: true });
+  });
+}
+
 async function applyBitrate(sender) {
   if (!sender) return;
   const parameters = sender.getParameters();
@@ -109,15 +129,61 @@ async function applyBitrateToPeers() {
 }
 
 function clearTransmission() {
-  const previousTargets = [...activeTargets];
-  updateTransmission([]);
-  previousTargets.forEach((target) => socket.emit("ptt-state", { target, active: false }));
+  pttTargets.clear();
+  syncTransmission();
   if (activeCard) {
     activeCard.dataset.pressed = "false";
     activeCard.classList.remove("talking");
-    activeCard.querySelector(".channel-state").textContent = "Canal livre";
+    if (activeCard.classList.contains("direct")) {
+      activeCard.querySelector(".channel-state").textContent = "Transmissão contínua";
+    } else {
+      activeCard.querySelector(".channel-state").textContent = "Canal livre";
+    }
   }
   activeCard = null;
+}
+
+async function setDirectTransmission(card, targetId, enabled) {
+  const targetIds = getTargets(targetId);
+  if (enabled) {
+    try {
+      await ensureLocalAudio(false);
+      await Promise.all(targetIds.map((id) => ensurePeer(id, true)));
+      targetIds.forEach((id) => directTargets.add(id));
+    } catch (error) {
+      targetIds.forEach((id) => directTargets.delete(id));
+      throw error;
+    }
+  } else {
+    targetIds.forEach((id) => directTargets.delete(id));
+  }
+  syncTransmission();
+  const button = card.querySelector(".direct-button");
+  button.setAttribute("aria-pressed", String(enabled));
+  button.textContent = enabled ? "OFF" : "ON";
+  card.classList.toggle("direct", enabled);
+  if (!enabled && !pttTargets.size) card.querySelector(".channel-state").textContent = "Canal livre";
+}
+
+function bindDirect(card, targetId) {
+  const button = card.querySelector(".direct-button");
+  button.addEventListener("pointerdown", (event) => event.stopPropagation());
+  button.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!joined || button.disabled) return;
+    const enabled = button.getAttribute("aria-pressed") !== "true";
+    button.disabled = true;
+    try {
+      await setDirectTransmission(card, targetId, enabled);
+      if (enabled) card.querySelector(".channel-state").textContent = "Transmissão contínua";
+    } catch (error) {
+      console.error(error);
+      hint.textContent = "Não foi possível acessar o microfone.";
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 function updateVuMeter(targetId, stream) {
@@ -164,8 +230,8 @@ function bindPtt(card, targetId) {
       const targetIds = getTargets(targetId);
       await Promise.all(targetIds.map((id) => ensurePeer(id, true)));
       if (card.dataset.pressed !== "true") return;
-      updateTransmission(targetIds);
-      targetIds.forEach((id) => socket.emit("ptt-state", { target: id, active: true }));
+      pttTargets = new Set(targetIds);
+      syncTransmission();
     } catch (error) {
       console.error(error);
       stopPtt(card, targetId);
@@ -330,7 +396,7 @@ joinButton.addEventListener("click", async () => {
     await loadAudioDevices();
     microphoneSelect.disabled = false;
     bitrateSelect.disabled = false;
-    hint.textContent = "Segure o cartão de um operador para falar.";
+    hint.textContent = "Segure o cartão para PTT ou use ON para transmitir continuamente.";
     socket.auth = { name };
     socket.connect();
     renderUsers();
