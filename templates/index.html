@@ -22,6 +22,8 @@
 
     <section class="control-strip">
       <label class="name-field">Seu identificador<input id="name-input" maxlength="32" autocomplete="nickname" placeholder="Ex.: Operador 01"></label>
+      <label class="name-field">Nome da sala<input id="room-name-input" maxlength="48" autocomplete="off" placeholder="Ex.: Portaria"></label>
+      <label class="name-field">Código da sala<input id="room-code-input" maxlength="32" autocomplete="off" placeholder="Ex.: 1234"></label>
       <button id="join-button" class="primary-button" type="button">Entrar na matriz</button>
       <p id="hint" class="hint">Entre para liberar os canais de voz.</p>
     </section>
@@ -37,6 +39,6 @@
     <footer><span>Áudio em tempo real via WebRTC</span><span>Sem gravação</span><span>Criado por Kdtorres Soluções Inteligentes</span></footer>
   </main>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <script src="{{ url_for('static', filename='app.js', v='7') }}"></script>
+  <script src="{{ url_for('static', filename='app.js', v='9') }}"></script>
 </body>
 </html>

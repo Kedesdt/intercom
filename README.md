@@ -11,7 +11,7 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-Abra `http://localhost:5000` em duas abas ou em dois navegadores. Informe nomes diferentes, entre na matriz e pressione o botão do outro operador.
+Abra `http://localhost:5000` em duas abas ou em dois navegadores. Informe o identificador do operador, o nome da sala e o código da sala. Pessoas com o mesmo nome e código entram na mesma sala; códigos diferentes criam salas isoladas. A sala existe somente enquanto houver alguém conectado e é removida da memória quando o último participante sai.
 
 Para microfone em produção, use HTTPS. O STUN configurado é público e serve para desenvolvimento; produção deve adicionar um servidor TURN para redes que bloqueiam conexões diretas.
 

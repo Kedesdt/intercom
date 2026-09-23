@@ -1,5 +1,5 @@
 const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
-const socket = io({ autoConnect: false });
+const socket = io({ autoConnect: false, transports: ["polling"], upgrade: false });
 const peers = new Map();
 const cards = new Map();
 const vuMeters = new Map();
@@ -19,6 +19,8 @@ let activeCard = null;
 const matrix = document.querySelector("#matrix");
 const emptyState = document.querySelector("#empty-state");
 const nameInput = document.querySelector("#name-input");
+const roomNameInput = document.querySelector("#room-name-input");
+const roomCodeInput = document.querySelector("#room-code-input");
 const joinButton = document.querySelector("#join-button");
 const hint = document.querySelector("#hint");
 const connectionLabel = document.querySelector("#connection-label");
@@ -386,9 +388,19 @@ joinButton.addEventListener("click", async () => {
     return;
   }
   const name = nameInput.value.trim() || `Operador ${Math.floor(Math.random() * 90 + 10)}`;
+  const roomName = roomNameInput.value.trim();
+  const roomCode = roomCodeInput.value.trim();
+  if (!roomName || !roomCode) {
+    hint.textContent = "Informe o nome e o código da sala para entrar.";
+    return;
+  }
   nameInput.value = name;
+  roomNameInput.value = roomName;
+  roomCodeInput.value = roomCode;
   joined = true;
   nameInput.disabled = true;
+  roomNameInput.disabled = true;
+  roomCodeInput.disabled = true;
   joinButton.disabled = true;
   hint.textContent = "Aguardando permissão para usar o microfone...";
   try {
@@ -397,13 +409,15 @@ joinButton.addEventListener("click", async () => {
     microphoneSelect.disabled = false;
     bitrateSelect.disabled = false;
     hint.textContent = "Segure o cartão para PTT ou use ON para transmitir continuamente.";
-    socket.auth = { name };
+    socket.auth = { name, roomName, roomCode };
     socket.connect();
     renderUsers();
   } catch (error) {
     console.error(error);
     joined = false;
     nameInput.disabled = false;
+    roomNameInput.disabled = false;
+    roomCodeInput.disabled = false;
     joinButton.disabled = false;
     if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
       hint.textContent = "A permissão do microfone foi recusada. Libere-a nas configurações do site e tente novamente.";
@@ -447,6 +461,14 @@ navigator.mediaDevices?.addEventListener("devicechange", () => {
 
 socket.on("connect", () => setConnection(true, "Conectado"));
 socket.on("disconnect", () => setConnection(false, "Desconectado"));
+socket.on("connect_error", (error) => {
+  joined = false;
+  nameInput.disabled = false;
+  roomNameInput.disabled = false;
+  roomCodeInput.disabled = false;
+  joinButton.disabled = false;
+  hint.textContent = error.message || "Não foi possível entrar nesta sala.";
+});
 socket.on("ready", (data) => { selfId = data.id; renderUsers(); });
 socket.on("users", (data) => { users = data; renderUsers(); });
 socket.on("offer", async ({ sender, description }) => {
