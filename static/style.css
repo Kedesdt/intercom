@@ -29,6 +29,7 @@ body { margin: 0; min-height: 100vh; color: var(--ink); background: radial-gradi
 .channel-all .operator { color: var(--accent); }
 .channel[aria-disabled="true"] { cursor: not-allowed; opacity: .5; }
 .channel-state { pointer-events: none; }
+.connection-info { min-height: 76px; margin: 8px 0; color: #78918a; font: 10px/1.45 "DM Sans", sans-serif; white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; }
 .vu-meter { height: 6px; margin: 10px 0 4px; overflow: hidden; border: 1px solid #38534b; background: #0b1714; pointer-events: none; }
 .vu-fill { display: block; width: 0; height: 100%; background: var(--accent); transition: width 80ms linear; }
 .channel-actions { display: grid; grid-template-columns: 42px 1fr; gap: 8px; align-items: stretch; }

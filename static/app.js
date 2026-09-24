@@ -56,7 +56,7 @@ function renderUsers() {
   if (others.length > 0) {
     const allCard = document.createElement("article");
     allCard.className = "channel channel-all";
-    allCard.innerHTML = `<div class="channel-top"><p class="operator">Todos os operadores</p><span class="channel-id">ALL</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><div class="channel-actions"><button class="direct-button" type="button" aria-label="Ligar transmissão contínua para todos" aria-pressed="false">ON</button><button class="talk-button" type="button" aria-label="Falar com todos"></button></div>`;
+    allCard.innerHTML = `<div class="channel-top"><p class="operator">Todos os operadores</p><span class="channel-id">ALL</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><div class="connection-info">Canal coletivo: selecione um operador para ver a conexão.</div><div class="channel-actions"><button class="direct-button" type="button" aria-label="Ligar transmissão contínua para todos" aria-pressed="false">ON</button><button class="talk-button" type="button" aria-label="Falar com todos"></button></div>`;
     allCard.tabIndex = joined ? 0 : -1;
     allCard.setAttribute("role", "button");
     allCard.setAttribute("aria-label", "Falar com todos os operadores");
@@ -70,7 +70,7 @@ function renderUsers() {
   others.forEach((user, index) => {
     const card = document.createElement("article");
     card.className = "channel";
-    card.innerHTML = `<div class="channel-top"><p class="operator"></p><span class="channel-id">CH ${String(index + 1).padStart(2, "0")}</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><div class="channel-actions"><button class="direct-button" type="button" aria-label="Ligar transmissão contínua" aria-pressed="false">ON</button><button class="talk-button" type="button" aria-label="Falar"></button></div>`;
+    card.innerHTML = `<div class="channel-top"><p class="operator"></p><span class="channel-id">CH ${String(index + 1).padStart(2, "0")}</span></div><p class="channel-state">Canal livre</p><div class="vu-meter" aria-label="Nível de áudio recebido"><span class="vu-fill"></span></div><div class="connection-info">WebRTC: aguardando conexão</div><div class="channel-actions"><button class="direct-button" type="button" aria-label="Ligar transmissão contínua" aria-pressed="false">ON</button><button class="talk-button" type="button" aria-label="Falar"></button></div>`;
     card.querySelector(".operator").textContent = user.name;
     card.tabIndex = joined ? 0 : -1;
     card.setAttribute("role", "button");
@@ -217,6 +217,65 @@ function updateVuMeter(targetId, stream) {
   draw();
 }
 
+function formatAddress(candidate) {
+  if (!candidate) return "indisponível";
+  const address = candidate.address || candidate.ip;
+  return address ? `${address}:${candidate.port || "?"}` : "indisponível";
+}
+
+function routeDescription(localType, remoteType) {
+  if (localType === "relay" || remoteType === "relay") return "Internet via TURN (relay)";
+  if (localType === "host" && remoteType === "host") return "Local/direto (host)";
+  if (["srflx", "prflx"].includes(localType) || ["srflx", "prflx"].includes(remoteType)) return "Internet direto (ICE/STUN)";
+  return "Rota ICE desconhecida";
+}
+
+function updateConnectionInfo(targetId) {
+  const entry = peers.get(targetId);
+  const cardData = cards.get(targetId);
+  if (!entry || !cardData) return;
+  const info = cardData.card.querySelector(".connection-info");
+  if (!info) return;
+  entry.statsTimer ??= window.setInterval(() => updateConnectionInfo(targetId), 1000);
+
+  entry.pc.getStats().then((stats) => {
+    let pair;
+    let localCandidate;
+    let remoteCandidate;
+    let inbound;
+    let outbound;
+    stats.forEach((report) => {
+      if (report.type === "candidate-pair" && (report.selected || report.nominated || report.state === "succeeded")) pair = report;
+      if (report.type === "local-candidate") localCandidate = report;
+      if (report.type === "remote-candidate") remoteCandidate = report;
+      if (report.type === "inbound-rtp" && report.kind === "audio") inbound = report;
+      if (report.type === "outbound-rtp" && report.kind === "audio") outbound = report;
+    });
+    if (pair?.localCandidateId) localCandidate = stats.get(pair.localCandidateId) || localCandidate;
+    if (pair?.remoteCandidateId) remoteCandidate = stats.get(pair.remoteCandidateId) || remoteCandidate;
+    const transport = [...stats.values()].find((report) => report.type === "transport");
+    const now = performance.now();
+    let bitrate = "n/d";
+    if (outbound?.bytesSent && entry.previousStats) {
+      const elapsed = (now - entry.previousStats.time) / 1000;
+      if (elapsed > 0) bitrate = `${Math.round((outbound.bytesSent - entry.previousStats.bytesSent) * 8 / elapsed / 1000)} kbps`;
+    }
+    if (outbound?.bytesSent) entry.previousStats = { bytesSent: outbound.bytesSent, time: now };
+    const rtt = pair?.currentRoundTripTime == null ? "n/d" : `${Math.round(pair.currentRoundTripTime * 1000)} ms`;
+    const loss = inbound?.packetsLost == null ? "n/d" : inbound.packetsLost;
+    info.textContent = [
+      `ICE: ${entry.pc.iceConnectionState} | conexão: ${entry.pc.connectionState}`,
+      `Rota: ${routeDescription(localCandidate?.candidateType, remoteCandidate?.candidateType)}`,
+      `Local: ${formatAddress(localCandidate)} | remoto: ${formatAddress(remoteCandidate)}`,
+      `ICE gathering: ${entry.pc.iceGatheringState} | signaling: ${entry.pc.signalingState}`,
+      `DTLS: ${transport?.dtlsState || "n/d"} | RTT: ${rtt} | perda recebida: ${loss}`,
+      `Áudio enviado: ${bitrate} | pacotes recebidos: ${inbound?.packetsReceived ?? "n/d"}`,
+    ].join("\n");
+  }).catch((error) => {
+    info.textContent = `WebRTC: estatísticas indisponíveis (${error.name || "erro"})`;
+  });
+}
+
 function bindPtt(card, targetId) {
   const start = async (event) => {
     event.preventDefault();
@@ -356,6 +415,9 @@ function createPeer(targetId) {
     }
   };
   pc.onconnectionstatechange = () => { if (["failed", "closed"].includes(pc.connectionState)) peers.delete(targetId); };
+  pc.oniceconnectionstatechange = () => updateConnectionInfo(targetId);
+  pc.onsignalingstatechange = () => updateConnectionInfo(targetId);
+  updateConnectionInfo(targetId);
   return pc;
 }
 
